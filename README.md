@@ -1,17 +1,28 @@
 # Search-RegNet-PyTorch
-Search for RegNet using PyTorch
 
+Search for RegNet using PyTorch and [AutoTorch](http://autotorch.org/).
 
 ## Quick Start
-### Test model #params and FLOPs from config file
+
+### Install Dependencies
+
+- Install PyTorch, following the [instruction](https://pytorch.org/get-started/locally/).
+- Install other dependencies:
+```bash
+pip install autotorch thop torch-encoding
+```
+
+### Test #params and FLOPs from config file
 ```bash
 python test_flops.py --config-file configs/RegNetX-4.0GF.ini
 ```
 
-### Train model from a config file
+### Train a single model from a config file
 ```bash
 TODO
 ```
+
+## Architecture Search
 
 ### Generate config files with expected GFLOPs
 ```bash
