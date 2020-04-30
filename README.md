@@ -12,7 +12,7 @@ Search for RegNet using PyTorch and [AutoTorch](http://autotorch.org/).
 pip install autotorch thop torch-encoding
 ```
 
-### Test #params and FLOPs from config file
+### Test #Params and FLOPs from config file
 ```bash
 python test_flops.py --config-file configs/RegNetX-4.0GF.ini
 ```
