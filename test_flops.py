@@ -17,7 +17,7 @@ def get_args():
     # data settings
     parser = argparse.ArgumentParser(description='RegNet-AutoTorch')
     # config files
-    parser.add_argument('--config-file', type=str,
+    parser.add_argument('--config-file', type=str, required=True,
                         help='network model type (default: densenet)')
     # input size
     parser.add_argument('--crop-size', type=int, default=224,
@@ -35,11 +35,7 @@ def main():
 
     dummy_images = torch.rand(1, 3, args.crop_size, args.crop_size)
 
-    #count_ops(model, dummy_images, verbose=False)
     macs, params = profile(model, inputs=(dummy_images, ))
-
-    print(f"macs: {macs/1e9}, params: {params/1e6}")
-
     macs, params = clever_format([macs, params], "%.3f") 
 
     print(f"macs: {macs}, params: {params}")

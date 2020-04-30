@@ -22,16 +22,16 @@ def get_args():
     # data settings
     parser = argparse.ArgumentParser(description='RegNet-AutoTorch')
     # config files
-    parser.add_argument('--config-file', type=str,
+    parser.add_argument('--config-file', type=str, required=True,
                         help='network model type (default: densenet)')
     # input size
     parser.add_argument('--crop-size', type=int, default=224,
                         help='crop image size')
     # target flops
-    parser.add_argument('--gflops', type=float,
+    parser.add_argument('--gflops', type=float, required=True,
                          help='expected flops')
     # num configs
-    parser.add_argument('--num-cofigs', type=int, default=32,
+    parser.add_argument('--num-configs', type=int, default=32,
                         help='num of expected configs')
     parser = parser
 
@@ -67,9 +67,12 @@ class GenConfg(dict):
 
     def dump_config(self, config_file=None):
         config = configparser.ConfigParser()
-        config = configparser.ConfigParser()
         config['DEFAULT'] = {'bottleneck_ratio': '1'}
         config['net'] = {}
+        self.group_width = self.group_width if self.group_width <= self.initial_width \
+            else self.initial_width
+        self.group_width = int(self.group_width // 8 * 8)
+        self.initial_width = int(self.initial_width // self.group_width * self.group_width)
         for k, v in self.items():
             config['net'][k] = str(v)
         if config_file is not None:
@@ -77,10 +80,9 @@ class GenConfg(dict):
                 config.write(cfg)
         return config
 
-def is_config_valid(cfg, target_flops, input_tensor, eps=1e-2):
+def is_config_valid(cfg, target_flops, input_tensor, eps=2e-2):
     model = config_regnet(cfg.dump_config())
     flops, _ = profile(model, inputs=(input_tensor, ))
-    #print(f"flops: {flops/1e9}")
     return flops <= (1. + eps) * target_flops and \
         flops >= (1. - eps) * target_flops
 
@@ -90,16 +92,19 @@ def main():
     input_tensor = torch.rand(1, 3, args.crop_size, args.crop_size)
     cfg_generator = GenConfg(
         initial_width=at.Int(16, 320),
-        slope=at.Int(8, 96),
+        slope=at.Real(8, 96),
         quantized_param=at.Real(2.0, 3.2),
         network_depth=at.Int(12, 28),
         bottleneck_ratio=1,
-        group_width=at.Int(8, 240))
+        group_width=at.Int(8, 240)
+        )
 
     valid = 0
-    while valid <= args.num_configs:
+    pbar = tqdm(range(args.num_configs))
+    while valid < args.num_configs:
         cfg = cfg_generator.rand
         if is_config_valid(cfg, args.gflops*1e9, input_tensor):
+            pbar.update()
             print(cfg)
             valid += 1
             cfg.dump_config(f'{args.config_file}-{valid}.ini')
