@@ -17,6 +17,15 @@ pip install autotorch thop torch-encoding
 python test_flops.py --config-file configs/RegNetX-4.0GF.ini
 ```
 
+## Single Model Training
+
+### Prepare ImageNet Dataset
+```
+cd scripts/
+# assuming you have downloaded the dataset in the current folder
+python prepare_imagenet.py --download-dir ./
+```
+
 ### Train a single model from a config file
 ```bash
 TODO
@@ -29,7 +38,12 @@ TODO
 python config_generator.py --gflops 4 --num-configs 32 --config-file configs/RegNetX-4.0GF
 ```
 
-### Search best model for the configurations in a folder
+The generated configuration files will be saved as `configs/RegNetX-4.0GF-1.ini`,
+`configs/RegNetX-4.0GF-2.ini` ...
+
+### Search best model for the config files in a folder
+In this example, each model will be trained using a single gpu for 10 epochs. 
 ```bash
-python search_regnet_configs.py --config-file-folder gen_configs_04gf/ --epochs 10 --data-dir /media/ramdisk/
+python search_regnet_configs.py --config-file-folder configs/ --epochs 10 --data-dir /media/ramdisk/
 ```
+The accuracy will be written into config file after training.
