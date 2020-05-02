@@ -9,13 +9,16 @@
 
 import os
 import copy
+import random
 import pickle
+import logging
 import argparse
 import configparser
 from tqdm import tqdm
 
 import torch
-#torch.multiprocessing.set_start_method('spawn')
+import multiprocessing as mp
+import multiprocessing.pool
 try:
     torch.multiprocessing.set_start_method('spawn',force=True)
 except RuntimeError:
@@ -27,19 +30,16 @@ from thop import profile, clever_format
 from regnet import config_regnet
 from config_generator import GenConfg
 
-import autotorch as at
-from autotorch.core import Task
-from autotorch.scheduler.resource import Resources
-from autotorch.legacy import TaskScheduler
-
 import encoding
-from encoding.utils import (accuracy, AverageMeter, LR_Scheduler)
+from encoding.utils import (mkdir, accuracy, AverageMeter, LR_Scheduler)
 
 def get_args():
     # data settings
     parser = argparse.ArgumentParser(description='RegNet-AutoTorch')
     # config files
     parser.add_argument('--config-file-folder', type=str, required=True,
+                        help='network model type (default: densenet)')
+    parser.add_argument('--output-folder', type=str, required=True,
                         help='network model type (default: densenet)')
     # input size
     parser.add_argument('--crop-size', type=int, default=224,
@@ -60,7 +60,7 @@ def get_args():
                             help='learning rate (default: 0.1)')
     parser.add_argument('--momentum', type=float, default=0.9, 
                         help='SGD momentum (default: 0.9)')
-    parser.add_argument('--weight-decay', type=float, default=5e-5, 
+    parser.add_argument('--wd', type=float, default=5e-5, 
                         help='SGD weight decay (default: 1e-4)')
     # AutoTorch
     parser.add_argument('--remote-file', type=str, default=None,
@@ -75,23 +75,56 @@ def get_args():
     return args
 
 
-def write_accuracy(config_file, acc):
+def write_accuracy(in_config_file, out_config_file, **kwargs):
     config = configparser.ConfigParser()
-    config.read(config_file)
-    config['net']['accuracy'] = str(acc)
-    with open(config_file, 'w') as cfg:
+    config.read(in_config_file)
+    for k, v in kwargs.items():
+        config['net'][k] = str(v)
+    with open(out_config_file, 'w') as cfg:
         config.write(cfg)
 
+class SplitSampler(torch.utils.data.Sampler):
+    """ Split the dataset into `num_parts` parts and sample from the part with
+    index `part_index`
+ 
+    Parameters
+    ----------
+    length: int
+      Number of examples in the dataset
+    num_parts: int
+      Partition the data into multiple parts
+    part_index: int
+      The index of the part to read from
+    """
+    def __init__(self, length, num_parts=1, part_index=0, random=True):
+        # Compute the length of each partition
+        self.part_len = length // num_parts
+        # Compute the start index for this partition
+        self.start = self.part_len * part_index
+        # Compute the end index for this partition
+        self.end = self.start + self.part_len
+        self.random = random
+ 
+    def __iter__(self):
+        # Extract examples between `start` and `end`, shuffle and return them.
+        indices = list(range(self.start, self.end))
+        if self.random:
+            random.shuffle(indices)
+        return iter(indices)
+ 
+    def __len__(self):
+        return self.part_len
 
 def train_network(args, gpu, config_file):
-    print('args:', args)
+    print('gpu: {}, cfg: {}'.format(gpu, config_file))
+
     # single gpu training only for evaluating the configurations
     model = config_regnet(config_file)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(),
                                 lr=args.lr,
                                 momentum=args.momentum,
-                                weight_decay=args.weight_decay)
+                                weight_decay=args.wd)
 
     model.cuda(gpu)
     criterion.cuda(gpu)
@@ -109,8 +142,9 @@ def train_network(args, gpu, config_file):
                                              transform=transform, train=True, download=True)
     valset = encoding.datasets.get_dataset('imagenet', root=args.data_dir,
                                            transform=transform, train=False, download=True)
+    #toy_sampler = SplitSampler(len(trainset), 100)
     train_loader = torch.utils.data.DataLoader(
-        trainset, batch_size=args.batch_size, shuffle=True,
+        trainset, batch_size=args.batch_size, shuffle=True,#sampler=toy_sampler,#
         num_workers=args.workers, drop_last=True, pin_memory=True)
 
     val_loader = torch.utils.data.DataLoader(
@@ -121,13 +155,14 @@ def train_network(args, gpu, config_file):
     lr_scheduler = LR_Scheduler('cos',
                                 base_lr=args.lr,
                                 num_epochs=args.epochs,
-                                iters_per_epoch=len(train_loader))
+                                iters_per_epoch=len(train_loader),
+                                quiet=True)
 
     # write results into config file
     def train(epoch):
         model.train()
         top1 = AverageMeter()
-        for batch_idx, (data, target) in enumerate(tqdm(train_loader)):
+        for batch_idx, (data, target) in enumerate(train_loader):
             lr_scheduler(optimizer, batch_idx, epoch, 0)
             data, target = data.cuda(gpu), target.cuda(gpu)
             optimizer.zero_grad()
@@ -139,7 +174,7 @@ def train_network(args, gpu, config_file):
     def validate():
         model.eval()
         top1 = AverageMeter()
-        for batch_idx, (data, target) in enumerate(tqdm(val_loader)):
+        for batch_idx, (data, target) in enumerate(val_loader):
             data, target = data.cuda(gpu), target.cuda(gpu)
             with torch.no_grad():
                 output = model(data)
@@ -148,38 +183,58 @@ def train_network(args, gpu, config_file):
 
         return top1.avg
 
-    for epoch in range(0, args.epochs):
+    for epoch in tqdm(range(0, args.epochs)):
         train(epoch)
     acc = validate()
-    write_accuracy(config_file, acc)
+
+    out_config_file = os.path.join(args.output_folder, os.path.basename(config_file))
+    write_accuracy(config_file, out_config_file,
+                   accuracy=acc.item(), epochs=args.epochs,
+                   lr=args.lr, wd=args.wd)
 
 
-def get_config_files(folder):
+def get_config_files(folder, overwrite=True):
+    def is_trained(filename):
+        # check if this config has been trained
+        return False
     # find all config files in the folder
     files = []
     for filename in os.listdir(folder):
         if filename.endswith(".ini"):
-            files.append(os.path.join(folder, filename))
+            fullname = os.path.join(folder, filename)
+            if not overwrite and is_trained(fullname): continue
+            files.append(fullname)
     return files
 
+def train_network_map(args):
+    train_network(*args)
+
+class NoDaemonProcess(mp.Process):
+    # make 'daemon' attribute always return False
+    def _get_daemon(self):
+        return False
+    def _set_daemon(self, value):
+        pass
+    daemon = property(_get_daemon, _set_daemon)
+
+class MyPool(mp.pool.Pool):
+    Process = NoDaemonProcess
+
 def main():
+    os.environ['PYTHONWARNINGS'] = 'ignore:semaphore_tracker:UserWarning'
+    logging.basicConfig(level=logging.DEBUG)
+
     args = get_args()
+    mkdir(args.output_folder)
 
     config_files = get_config_files(args.config_file_folder)
+    print(f"len(config_files): {len(config_files)}")
 
-    scheduler = TaskScheduler()
-    for i, config_file in enumerate(config_files):
-        resource = Resources(num_cpus=8, num_gpus=1)
-        task = Task(train_network, {
-                'args': args,
-                'gpu': i % at.get_gpu_count(),
-                'config_file': config_file
-            }, resource)
-        scheduler.add_task(task)
-        #train_network(args, 0, config_file)
-
-    scheduler.join_tasks()
-    at.save(scheduler.state_dict(), args.checkname)
+    ngpus = torch.cuda.device_count()
+    tasks = ([args, i%ngpus, config_file] for i, config_file in enumerate(config_files))
+        
+    p = MyPool(processes=ngpus)
+    p.map(train_network_map, tasks)
 
 if __name__ == '__main__':
     main()
