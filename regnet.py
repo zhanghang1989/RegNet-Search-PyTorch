@@ -37,8 +37,10 @@ class RegNeSt(AnyNeSt):
     def __init__(self, initial_width, slope, quantized_param, network_depth, bottleneck_ratio, group_width,
                  stride=2):
         # We need to derive block width and number of blocks from initial parameters.
-        parameterized_width = initial_width + slope * np.arange(network_depth)  # From equation 2
-        parameterized_block = np.log(parameterized_width / initial_width) / np.log(quantized_param)  # From equation 3
+        # From equation 2
+        parameterized_width = initial_width + slope * np.arange(network_depth)
+        # From equation 3
+        parameterized_block = np.log(parameterized_width / initial_width) / np.log(quantized_param)
         parameterized_block = np.round(parameterized_block)
         quantized_width = initial_width * np.power(quantized_param, parameterized_block)
         # We need to convert quantized_width to make sure that it is divisible by 8
