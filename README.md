@@ -42,9 +42,10 @@ The generated configuration files will be saved as `configs/RegNetX-4.0GF-1.ini`
 `configs/RegNetX-4.0GF-2.ini` ...
 
 ### Search best model for the config files in a folder
-In this example, each model will be trained using a single gpu for 10 epochs. 
+In this example, each model will be trained using a single gpu for 25 epochs. 
 
 ```bash
 python search_regnet_configs.py --config-file-folder gen_configs/0.4GF/ --output-folder out_configs/ --epochs 25
 ```
-The accuracy will be written into config file after training.
+The accuracy will be written into the output config file after training.
+

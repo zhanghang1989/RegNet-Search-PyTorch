@@ -115,7 +115,8 @@ class SplitSampler(torch.utils.data.Sampler):
     def __len__(self):
         return self.part_len
 
-def train_network(args, gpu, config_file):
+def train_network(args, gpu_manager, config_file):
+    gpu = gpu_manager.request()
     print('gpu: {}, cfg: {}'.format(gpu, config_file))
 
     # single gpu training only for evaluating the configurations
@@ -191,6 +192,7 @@ def train_network(args, gpu, config_file):
     write_accuracy(config_file, out_config_file,
                    accuracy=acc.item(), epochs=args.epochs,
                    lr=args.lr, wd=args.wd)
+    gpu_manager.release(gpu)
 
 
 def get_config_files(folder, overwrite=True):
@@ -220,6 +222,19 @@ class NoDaemonProcess(mp.Process):
 class MyPool(mp.pool.Pool):
     Process = NoDaemonProcess
 
+
+class GPUManager(object):
+    def __init__(self, ngpus):
+        self._gpus = mp.Manager().Queue()
+        for i in range(ngpus):
+            self._gpus.put(i)
+
+    def request(self):
+        return self._gpus.get()
+
+    def release(self, gpu):
+        self._gpus.put(gpu)
+
 def main():
     os.environ['PYTHONWARNINGS'] = 'ignore:semaphore_tracker:UserWarning'
     logging.basicConfig(level=logging.DEBUG)
@@ -231,7 +246,8 @@ def main():
     print(f"len(config_files): {len(config_files)}")
 
     ngpus = torch.cuda.device_count()
-    tasks = ([args, i%ngpus, config_file] for i, config_file in enumerate(config_files))
+    gpu_manager = GPUManager(ngpus)
+    tasks = ([args, gpu_manager, config_file] for i, config_file in enumerate(config_files))
         
     p = MyPool(processes=ngpus)
     p.map(train_network_map, tasks)
