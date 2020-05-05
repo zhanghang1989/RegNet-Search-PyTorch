@@ -26,8 +26,13 @@ except RuntimeError:
 import torch.nn as nn
 from torchvision import transforms
 
+try:
+    import apex
+    from apex import amp
+except ModuleNotFoundError:
+    print('please install amp if using float16 training')
+
 from thop import profile, clever_format
-from regnet import config_regnet
 from config_generator import GenConfg
 
 import encoding
@@ -51,11 +56,13 @@ def get_args():
                         help='batch size for training (default: 128)')
     parser.add_argument('--epochs', type=int, default=25,
                         help='number of epochs to train (default: 600)')
-    parser.add_argument('--workers', type=int, default=8,
+    parser.add_argument('--workers', type=int, default=12,
                         help='dataloader threads')
     parser.add_argument('--data-dir', type=str, default=os.path.expanduser('~/.encoding/data'),
                         help='data location for training')
     # training hp
+    parser.add_argument('--amp', action='store_true',
+                        default=False, help='using amp')
     parser.add_argument('--lr', type=float, default=0.1,
                             help='learning rate (default: 0.1)')
     parser.add_argument('--momentum', type=float, default=0.9, 
@@ -75,7 +82,7 @@ def get_args():
     return args
 
 
-def write_accuracy(in_config_file, out_config_file, **kwargs):
+def write_results(in_config_file, out_config_file, **kwargs):
     config = configparser.ConfigParser()
     config.read(in_config_file)
     for k, v in kwargs.items():
@@ -83,44 +90,14 @@ def write_accuracy(in_config_file, out_config_file, **kwargs):
     with open(out_config_file, 'w') as cfg:
         config.write(cfg)
 
-class SplitSampler(torch.utils.data.Sampler):
-    """ Split the dataset into `num_parts` parts and sample from the part with
-    index `part_index`
- 
-    Parameters
-    ----------
-    length: int
-      Number of examples in the dataset
-    num_parts: int
-      Partition the data into multiple parts
-    part_index: int
-      The index of the part to read from
-    """
-    def __init__(self, length, num_parts=1, part_index=0, random=True):
-        # Compute the length of each partition
-        self.part_len = length // num_parts
-        # Compute the start index for this partition
-        self.start = self.part_len * part_index
-        # Compute the end index for this partition
-        self.end = self.start + self.part_len
-        self.random = random
- 
-    def __iter__(self):
-        # Extract examples between `start` and `end`, shuffle and return them.
-        indices = list(range(self.start, self.end))
-        if self.random:
-            random.shuffle(indices)
-        return iter(indices)
- 
-    def __len__(self):
-        return self.part_len
 
 def train_network(args, gpu_manager, config_file):
     gpu = gpu_manager.request()
     print('gpu: {}, cfg: {}'.format(gpu, config_file))
 
     # single gpu training only for evaluating the configurations
-    model = config_regnet(config_file)
+    arch = importlib.import_module('generator.' + arch)
+    model = arch.config_network(config_file)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(),
                                 lr=args.lr,
@@ -129,6 +106,10 @@ def train_network(args, gpu_manager, config_file):
 
     model.cuda(gpu)
     criterion.cuda(gpu)
+
+    if args.amp:
+        #optimizer = amp_handle.wrap_optimizer(optimizer)
+        model, optimizer = amp.initialize(model, optimizer, opt_level='O2')
 
     # init dataloader
     base_size = args.base_size if args.base_size is not None else int(1.0 * args.crop_size / 0.875)
@@ -143,9 +124,8 @@ def train_network(args, gpu_manager, config_file):
                                              transform=transform, train=True, download=True)
     valset = encoding.datasets.get_dataset('imagenet', root=args.data_dir,
                                            transform=transform, train=False, download=True)
-    #toy_sampler = SplitSampler(len(trainset), 100)
     train_loader = torch.utils.data.DataLoader(
-        trainset, batch_size=args.batch_size, shuffle=True,#sampler=toy_sampler,#
+        trainset, batch_size=args.batch_size, shuffle=True,
         num_workers=args.workers, drop_last=True, pin_memory=True)
 
     val_loader = torch.utils.data.DataLoader(
@@ -169,7 +149,11 @@ def train_network(args, gpu_manager, config_file):
             optimizer.zero_grad()
             output = model(data)
             loss = criterion(output, target)
-            loss.backward()
+            if args.amp:
+                with amp.scale_loss(loss, optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                loss.backward()
             optimizer.step()
 
     def validate():
@@ -189,7 +173,7 @@ def train_network(args, gpu_manager, config_file):
     acc = validate()
 
     out_config_file = os.path.join(args.output_folder, os.path.basename(config_file))
-    write_accuracy(config_file, out_config_file,
+    write_results(config_file, out_config_file,
                    accuracy=acc.item(), epochs=args.epochs,
                    lr=args.lr, wd=args.wd)
     gpu_manager.release(gpu)

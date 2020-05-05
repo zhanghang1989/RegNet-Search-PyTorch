@@ -9,6 +9,7 @@
 
 import os
 import argparse
+import importlib
 import configparser
 from tqdm import tqdm
 
@@ -16,20 +17,23 @@ import torch
 import autotorch as at
 
 from thop import profile, clever_format
-from regnet import config_regnet
 
 def get_args():
     # data settings
     parser = argparse.ArgumentParser(description='RegNet-AutoTorch')
     # config files
+    parser.add_argument('--arch', type=str, default='regnet',
+                        help='network type (default: regnet)')
     parser.add_argument('--config-file', type=str, required=True,
-                        help='network model type (default: densenet)')
+                        help='target config file prefix')
     # input size
     parser.add_argument('--crop-size', type=int, default=224,
                         help='crop image size')
     # target flops
     parser.add_argument('--gflops', type=float, required=True,
                          help='expected flops')
+    parser.add_argument('--eps', type=float, default=2e-2,
+                         help='eps for expected flops')
     # num configs
     parser.add_argument('--num-configs', type=int, default=32,
                         help='num of expected configs')
@@ -39,49 +43,8 @@ def get_args():
     return args
 
 
-@at.obj()
-class GenConfg(dict):
-    def __init__(self, d=None, **kwargs):
-        if d is None:
-            d = {}
-        if kwargs:
-            d.update(**kwargs)
-        for k, v in d.items():
-            setattr(self, k, v)
-        # Class attributes
-        for k in self.__class__.__dict__.keys():
-            if not (k.startswith('__') and k.endswith('__')) and \
-                    not k in ('dump_config', 'update', 'pop'):
-                setattr(self, k, getattr(self, k))
-
-    def __setattr__(self, name, value):
-        if isinstance(value, (list, tuple)):
-            value = [self.__class__(x)
-                     if isinstance(x, dict) else x for x in value]
-        elif isinstance(value, dict) and not isinstance(value, self.__class__):
-            value = self.__class__(value)
-        super().__setattr__(name, value)
-        super().__setitem__(name, value)
-
-    __setitem__ = __setattr__
-
-    def dump_config(self, config_file=None):
-        config = configparser.ConfigParser()
-        config['DEFAULT'] = {'bottleneck_ratio': '1'}
-        config['net'] = {}
-        self.group_width = self.group_width if self.group_width <= self.initial_width \
-            else self.initial_width
-        self.group_width = int(self.group_width // 8 * 8)
-        self.initial_width = int(self.initial_width // self.group_width * self.group_width)
-        for k, v in self.items():
-            config['net'][k] = str(v)
-        if config_file is not None:
-            with open(config_file, 'w') as cfg:
-                config.write(cfg)
-        return config
-
-def is_config_valid(cfg, target_flops, input_tensor, eps=2e-2):
-    model = config_regnet(cfg.dump_config())
+def is_config_valid(arch, cfg, target_flops, input_tensor, eps):
+    model = arch.config_network(cfg.dump_config())
     flops, _ = profile(model, inputs=(input_tensor, ))
     return flops <= (1. + eps) * target_flops and \
         flops >= (1. - eps) * target_flops
@@ -90,7 +53,8 @@ def main():
     args = get_args()
 
     input_tensor = torch.rand(1, 3, args.crop_size, args.crop_size)
-    cfg_generator = GenConfg(
+    arch = importlib.import_module('generator.' + arch)
+    cfg_generator = arch.GenConfg(
         initial_width=at.Int(16, 320),
         slope=at.Real(8, 96),
         quantized_param=at.Real(2.0, 3.2),
@@ -103,7 +67,7 @@ def main():
     pbar = tqdm(range(args.num_configs))
     while valid < args.num_configs:
         cfg = cfg_generator.rand
-        if is_config_valid(cfg, args.gflops*1e9, input_tensor):
+        if is_config_valid(arch, cfg, args.gflops*1e9, input_tensor, args.eps):
             pbar.update()
             print(cfg)
             valid += 1

@@ -12,6 +12,14 @@ Search for RegNet using PyTorch and [AutoTorch](http://autotorch.org/).
 pip install autotorch thop torch-encoding
 ```
 
+- Install Apex (optional):
+
+```
+git clone https://github.com/NVIDIA/apex
+cd apex
+pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
+```
+
 ### Test #Params and FLOPs from config file
 ```bash
 python test_flops.py --config-file configs/RegNetX-4.0GF.ini
@@ -28,7 +36,7 @@ python prepare_imagenet.py --download-dir ./
 
 ### Train a single model from a config file
 ```bash
-TODO
+python train.py --dataset imagenet --config-file configs/RegNetX-4.0GF.ini --lr-scheduler cos --epochs 120 --checkname resnet50_check --lr 0.025 --batch-size 64 --amp
 ```
 
 ## Architecture Search

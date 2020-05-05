@@ -4,6 +4,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+import autotorch as at
+from .base_generator import BaseGen
+
 __all__ = ['RegNeSt']
 
 # code modified from https://github.com/signatrix/regnet
@@ -127,7 +130,24 @@ class GlobalAvgPool2d(nn.Module):
     def forward(self, inputs):
         return nn.functional.adaptive_avg_pool2d(inputs, 1).view(inputs.size(0), -1)
 
-def config_regnet(cfg):
+@at.obj()
+class BaseGenConfg(BaseGen):
+    def dump_config(self, config_file=None):
+        config = configparser.ConfigParser()
+        config['DEFAULT'] = {'bottleneck_ratio': '1'}
+        config['net'] = {}
+        self.group_width = self.group_width if self.group_width <= self.initial_width \
+            else self.initial_width
+        self.group_width = int(self.group_width // 8 * 8)
+        self.initial_width = int(self.initial_width // self.group_width * self.group_width)
+        for k, v in self.items():
+            config['net'][k] = str(v)
+        if config_file is not None:
+            with open(config_file, 'w') as cfg:
+                config.write(cfg)
+        return config
+
+def config_network(cfg):
     # construct regnet from a config file
     if isinstance(cfg, configparser.ConfigParser):
         config = cfg
