@@ -8,15 +8,17 @@
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 import argparse
-import torch
+import importlib
 
+import torch
 from thop import profile, clever_format
-from regnet import config_regnet
 
 def get_args():
     # data settings
     parser = argparse.ArgumentParser(description='RegNet-AutoTorch')
     # config files
+    parser.add_argument('--arch', type=str, default='regnet',
+                        help='network type (default: regnet)')
     parser.add_argument('--config-file', type=str, required=True,
                         help='network model type (default: densenet)')
     # input size
@@ -30,7 +32,8 @@ def get_args():
 def main():
     args = get_args()
 
-    model = config_regnet(args.config_file)
+    arch = importlib.import_module('generator.' + args.arch)
+    model = arch.config_network(args.config_file)
     print(model)
 
     dummy_images = torch.rand(1, 3, args.crop_size, args.crop_size)

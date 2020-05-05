@@ -1,6 +1,6 @@
 # Search-RegNet-PyTorch
 
-Search for RegNet using PyTorch and [AutoTorch](http://autotorch.org/).
+Reimplementing neural architecture search for RegNet using PyTorch and [AutoTorch](http://autotorch.org/).
 
 ## Quick Start
 
