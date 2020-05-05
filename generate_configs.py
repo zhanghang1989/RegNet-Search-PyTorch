@@ -54,14 +54,7 @@ def main():
 
     input_tensor = torch.rand(1, 3, args.crop_size, args.crop_size)
     arch = importlib.import_module('arch.' + arch)
-    cfg_generator = arch.GenConfg(
-        initial_width=at.Int(16, 320),
-        slope=at.Real(8, 96),
-        quantized_param=at.Real(2.0, 3.2),
-        network_depth=at.Int(12, 28),
-        bottleneck_ratio=1,
-        group_width=at.Int(8, 240)
-        )
+    cfg_generator = arch.GenConfg()
 
     valid = 0
     pbar = tqdm(range(args.num_configs))

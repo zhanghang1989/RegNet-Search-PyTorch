@@ -36,7 +36,7 @@ class AnyNeSt(nn.Module):
         return x
 
 
-class RegNeSt(AnyNeSt):
+class RegNet(AnyNeSt):
     def __init__(self, initial_width, slope, quantized_param, network_depth, bottleneck_ratio, group_width,
                  stride=2):
         # We need to derive block width and number of blocks from initial parameters.
@@ -130,7 +130,14 @@ class GlobalAvgPool2d(nn.Module):
     def forward(self, inputs):
         return nn.functional.adaptive_avg_pool2d(inputs, 1).view(inputs.size(0), -1)
 
-@at.obj()
+@at.obj(
+    initial_width=at.Int(16, 320),
+    slope=at.Real(8, 96),
+    quantized_param=at.Real(2.0, 3.2),
+    network_depth=at.Int(12, 28),
+    bottleneck_ratio=1,
+    group_width=at.Int(8, 240),
+)
 class BaseGenConfg(BaseGen):
     def dump_config(self, config_file=None):
         config = configparser.ConfigParser()
@@ -139,7 +146,7 @@ class BaseGenConfg(BaseGen):
         self.group_width = self.group_width if self.group_width <= self.initial_width \
             else self.initial_width
         self.group_width = int(self.group_width // 8 * 8)
-        self.initial_width = int(self.initial_width // self.group_width * self.group_width)
+        #self.initial_width = int(self.initial_width // self.group_width * self.group_width)
         for k, v in self.items():
             config['net'][k] = str(v)
         if config_file is not None:
@@ -161,12 +168,12 @@ def config_network(cfg):
     group_width = group_width if group_width <= initial_width else initial_width
     group_width = int(group_width // 8 * 8)
 
-    initial_width = int(initial_width // group_width * group_width)
+    #initial_width = int(initial_width // group_width * group_width)
 
     slope = float(config['net']['slope'])
     quantized_param = float(config['net']['quantized_param'])
 
     network_depth = int(config['net']['network_depth'])
-    model = RegNeSt(initial_width, slope, quantized_param, network_depth,
-                    bottleneck_ratio, group_width)
+    model = RegNet(initial_width, slope, quantized_param, network_depth,
+                   bottleneck_ratio, group_width)
     return model
