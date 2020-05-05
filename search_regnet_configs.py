@@ -33,7 +33,6 @@ except ModuleNotFoundError:
     print('please install amp if using float16 training')
 
 from thop import profile, clever_format
-from config_generator import GenConfg
 
 import encoding
 from encoding.utils import (mkdir, accuracy, AverageMeter, LR_Scheduler)
@@ -96,7 +95,7 @@ def train_network(args, gpu_manager, config_file):
     print('gpu: {}, cfg: {}'.format(gpu, config_file))
 
     # single gpu training only for evaluating the configurations
-    arch = importlib.import_module('generator.' + arch)
+    arch = importlib.import_module('arch.' + arch)
     model = arch.config_network(config_file)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(),

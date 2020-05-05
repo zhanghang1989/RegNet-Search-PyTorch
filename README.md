@@ -43,7 +43,7 @@ python train.py --dataset imagenet --config-file configs/RegNetX-4.0GF.ini --lr-
 
 ### Generate config files with expected GFLOPs
 ```bash
-python config_generator.py --gflops 4 --num-configs 32 --config-file configs/RegNetX-4.0GF
+python generate_configs.py --gflops 4 --num-configs 32 --config-file configs/RegNetX-4.0GF
 ```
 
 The generated configuration files will be saved as `configs/RegNetX-4.0GF-1.ini`,

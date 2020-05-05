@@ -53,7 +53,7 @@ def main():
     args = get_args()
 
     input_tensor = torch.rand(1, 3, args.crop_size, args.crop_size)
-    arch = importlib.import_module('generator.' + arch)
+    arch = importlib.import_module('arch.' + arch)
     cfg_generator = arch.GenConfg(
         initial_width=at.Int(16, 320),
         slope=at.Real(8, 96),

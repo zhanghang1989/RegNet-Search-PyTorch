@@ -32,7 +32,7 @@ def get_args():
 def main():
     args = get_args()
 
-    arch = importlib.import_module('generator.' + args.arch)
+    arch = importlib.import_module('arch.' + args.arch)
     model = arch.config_network(args.config_file)
     print(model)
 
