@@ -21,6 +21,8 @@ def get_args():
                         help='network type (default: regnet)')
     parser.add_argument('--config-file', type=str, required=True,
                         help='network model type (default: densenet)')
+    parser.add_argument('--display', action='store_true', default=False,
+                        help='display network')
     # input size
     parser.add_argument('--crop-size', type=int, default=224,
                         help='crop image size')
@@ -34,7 +36,8 @@ def main():
 
     arch = importlib.import_module('arch.' + args.arch)
     model = arch.config_network(args.config_file)
-    print(model)
+    if args.display:
+        print(model)
 
     dummy_images = torch.rand(1, 3, args.crop_size, args.crop_size)
 

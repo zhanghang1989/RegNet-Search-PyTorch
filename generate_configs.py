@@ -53,13 +53,16 @@ def main():
     args = get_args()
 
     input_tensor = torch.rand(1, 3, args.crop_size, args.crop_size)
-    arch = importlib.import_module('arch.' + arch)
+    arch = importlib.import_module('arch.' + args.arch)
     cfg_generator = arch.GenConfg()
+    searcher = at.searcher.RandomSearcher(cfg_generator.cs)
 
     valid = 0
     pbar = tqdm(range(args.num_configs))
     while valid < args.num_configs:
-        cfg = cfg_generator.rand
+        config = searcher.get_config()
+        #cfg = cfg_generator.rand
+        cfg = cfg_generator.sample(**config)
         if is_config_valid(arch, cfg, args.gflops*1e9, input_tensor, args.eps):
             pbar.update()
             print(cfg)

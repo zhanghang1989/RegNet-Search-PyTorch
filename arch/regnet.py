@@ -132,13 +132,13 @@ class GlobalAvgPool2d(nn.Module):
 
 @at.obj(
     initial_width=at.Int(16, 320),
-    slope=at.Real(8, 96),
+    slope=at.Real(24, 128, log=True),
     quantized_param=at.Real(2.0, 3.2),
     network_depth=at.Int(12, 28),
     bottleneck_ratio=1,
     group_width=at.Int(8, 240),
 )
-class BaseGenConfg(BaseGen):
+class GenConfg(BaseGen):
     def dump_config(self, config_file=None):
         config = configparser.ConfigParser()
         config['DEFAULT'] = {'bottleneck_ratio': '1'}
