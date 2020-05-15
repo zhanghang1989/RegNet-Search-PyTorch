@@ -1,3 +1,4 @@
+import configparser
 
 class BaseGen(dict):
     def __init__(self, d=None, **kwargs):
@@ -10,7 +11,7 @@ class BaseGen(dict):
         # Class attributes
         for k in self.__class__.__dict__.keys():
             if not (k.startswith('__') and k.endswith('__')) and \
-                    not k in ('dump_config', 'update', 'pop'):
+                    not k in ('dump_config', 'load_config', 'update', 'pop'):
                 setattr(self, k, getattr(self, k))
 
     def __setattr__(self, name, value):
@@ -26,3 +27,10 @@ class BaseGen(dict):
 
     def dump_config(self, config_file=None):
         raise NotImplementedError
+
+    def load_config(self, filename):
+        config = configparser.ConfigParser()
+        config.read(filename)
+
+        for k, v in config['net'].items():
+            setattr(self, k, v)

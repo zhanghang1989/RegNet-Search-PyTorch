@@ -81,7 +81,7 @@ class Options():
                             help='number of warmup epochs (default: 0)')
         parser.add_argument('--momentum', type=float, default=0.9, 
                             metavar='M', help='SGD momentum (default: 0.9)')
-        parser.add_argument('--weight-decay', type=float, default=1e-4, 
+        parser.add_argument('--wd', type=float, default=1e-4, 
                             metavar ='M', help='SGD weight decay (default: 1e-4)')
         parser.add_argument('--no-bn-wd', action='store_true', 
                             default=False, help='no bias decay')
@@ -173,7 +173,7 @@ def main_worker(gpu, ngpus_per_node, args):
         sampler=val_sampler)
     
     # init the model
-    arch = importlib.import_module('generator.' + args.arch)
+    arch = importlib.import_module('arch.' + args.arch)
     model = arch.config_network(args.config_file)
     if args.gpu == 0:
         print(model)
@@ -200,15 +200,15 @@ def main_worker(gpu, ngpus_per_node, args):
             print(" Weight decay NOT applied to BN parameters ")
             print(f'len(parameters): {len(list(model.parameters()))} = {len(bn_params)} + {len(rest_params)}')
         optimizer = torch.optim.SGD([{'params': bn_params, 'weight_decay': 0 },
-                                     {'params': rest_params, 'weight_decay': args.weight_decay}],
+                                     {'params': rest_params, 'weight_decay': args.wd}],
                                     lr=args.lr,
                                     momentum=args.momentum,
-                                    weight_decay=args.weight_decay)
+                                    weight_decay=args.wd)
     else:
         optimizer = torch.optim.SGD(model.parameters(),
                                     lr=args.lr,
                                     momentum=args.momentum,
-                                    weight_decay=args.weight_decay)
+                                    weight_decay=args.wd)
     if args.amp:
         #optimizer = amp_handle.wrap_optimizer(optimizer)
         model, optimizer = amp.initialize(model, optimizer, opt_level='O2')
