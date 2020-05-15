@@ -5,7 +5,7 @@ Implemention for neural architecture search of [RegNet](https://arxiv.org/abs/20
 | model| ref | Acc | config |
 |------|------|------|---|
 | RegNet-0.4GF| official | 72.38 | [link](./configs/RegNetX-0.4GF.ini) |
-| RegNet-0.4GF| ours | 72.18 | [link](./gen_configs/ResNet-0.4GF/ResNet-0.4GF-1.ini) |
+| RegNet-0.4GF| ours | 72.18 | [link](./gen_configs/RegNet-0.4GF/ResNet-0.4GF-1.ini) |
 | RegNet-4.0GF| official | 79.03 | [link](./configs/RegNetX-4.0GF.ini) |
 
 `official`: using official configuration. `ours`: using our searched configuration.
