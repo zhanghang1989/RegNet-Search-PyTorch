@@ -2,6 +2,8 @@
 
 Implemention for neural architecture search of [RegNet](https://arxiv.org/abs/2003.13678) using PyTorch and [AutoTorch](http://autotorch.org/).
 
+This example and [Fast AutoAugment](https://github.com/zhanghang1989/Fast-AutoAug-Torch) will be used in the tutorial on [From HPO to NAS: Automated Deep Learning](https://hangzhang.org/CVPR2020/) at CVPR 2020.
+
 | model| ref | Acc | config |
 |------|------|------|---|
 | RegNet-0.4GF| official | 72.38 | [link](./configs/RegNetX-0.4GF.ini) |
@@ -16,9 +18,6 @@ learning rate: 0.2,
 batch size: 512,
 weight decay: 1e-4,
 ``
-
-
-This example and [Fast AutoAugment](https://github.com/zhanghang1989/Fast-AutoAug-Torch) will be used in the tutorial on [From HPO to NAS: Automated Deep Learning](https://hangzhang.org/CVPR2020/) at CVPR 2020.
 
 ## Quick Start
 
