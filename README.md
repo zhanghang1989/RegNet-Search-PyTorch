@@ -2,6 +2,8 @@
 
 Reimplementing neural architecture search for RegNet using PyTorch and [AutoTorch](http://autotorch.org/).
 
+This example and [Fast AutoAugment](https://github.com/zhanghang1989/Fast-AutoAug-Torch) will be used in the tutorial on [From HPO to NAS: Automated Deep Learning](https://hangzhang.org/CVPR2020/) at CVPR 2020.
+
 ## Quick Start
 
 ### Install Dependencies
