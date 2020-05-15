@@ -61,7 +61,6 @@ def main():
     pbar = tqdm(range(args.num_configs))
     while valid < args.num_configs:
         config = searcher.get_config()
-        #cfg = cfg_generator.rand
         cfg = cfg_generator.sample(**config)
         if is_config_valid(arch, cfg, args.gflops*1e9, input_tensor, args.eps):
             pbar.update()

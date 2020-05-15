@@ -173,8 +173,8 @@ def train_network(args, gpu_manager, config_file):
 
     out_config_file = os.path.join(args.output_folder, os.path.basename(config_file))
     write_results(config_file, out_config_file,
-                   accuracy=acc.item(), epochs=args.epochs,
-                   lr=args.lr, wd=args.wd)
+                  accuracy=acc.item(), epochs=args.epochs,
+                  lr=args.lr, wd=args.wd)
     gpu_manager.release(gpu)
 
 

@@ -131,11 +131,11 @@ class GlobalAvgPool2d(nn.Module):
         return nn.functional.adaptive_avg_pool2d(inputs, 1).view(inputs.size(0), -1)
 
 @at.obj(
+    bottleneck_ratio=1, #at.Int(1, 2),
     initial_width=at.Int(16, 320),
     slope=at.Real(24, 128, log=True),
     quantized_param=at.Real(2.0, 3.2),
     network_depth=at.Int(12, 28),
-    bottleneck_ratio=1,
     group_width=at.Int(8, 240),
 )
 class GenConfg(BaseGen):

@@ -1,6 +1,6 @@
 # Search-RegNet-PyTorch
 
-Reimplementing neural architecture search for RegNet using PyTorch and [AutoTorch](http://autotorch.org/).
+Implemention for neural architecture search of [RegNet](https://arxiv.org/abs/2003.13678) using PyTorch and [AutoTorch](http://autotorch.org/).
 
 | model| ref | Acc | config |
 |------|------|------|---|
