@@ -130,8 +130,23 @@ class GlobalAvgPool2d(nn.Module):
     def forward(self, inputs):
         return nn.functional.adaptive_avg_pool2d(inputs, 1).view(inputs.size(0), -1)
 
+def dump_config(cfg, config_file=None):
+    config = configparser.ConfigParser()
+    config['DEFAULT'] = {'bottleneck_ratio': '1'}
+    config['net'] = {}
+    cfg.group_width = cfg.group_width if cfg.group_width <= cfg.initial_width \
+        else cfg.initial_width
+    cfg.group_width = int(cfg.group_width // 8 * 8)
+    for k, v in cfg.items():
+        config['net'][k] = str(v)
+    if config_file is not None:
+        with open(config_file, 'w') as cfg:
+            config.write(cfg)
+    return config
+
+
 @at.obj(
-    bottleneck_ratio=1, #at.Int(1, 2),
+    bottleneck_ratio=at.Int(1, 2),
     initial_width=at.Int(16, 320),
     slope=at.Real(24, 128, log=True),
     quantized_param=at.Real(2.0, 3.2),
@@ -140,19 +155,7 @@ class GlobalAvgPool2d(nn.Module):
 )
 class GenConfg(BaseGen):
     def dump_config(self, config_file=None):
-        config = configparser.ConfigParser()
-        config['DEFAULT'] = {'bottleneck_ratio': '1'}
-        config['net'] = {}
-        self.group_width = self.group_width if self.group_width <= self.initial_width \
-            else self.initial_width
-        self.group_width = int(self.group_width // 8 * 8)
-        #self.initial_width = int(self.initial_width // self.group_width * self.group_width)
-        for k, v in self.items():
-            config['net'][k] = str(v)
-        if config_file is not None:
-            with open(config_file, 'w') as cfg:
-                config.write(cfg)
-        return config
+        dump_config(self, config_file)
 
 def config_network(cfg):
     # construct regnet from a config file
