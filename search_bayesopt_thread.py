@@ -28,13 +28,12 @@ import torch.nn as nn
 from torchvision import transforms
 
 import autotorch as at
-from utils import subsample_dataset
 
-#try:
-#    import apex
-#    from apex import amp
-#except ModuleNotFoundError:
-#    print('please install amp if using float16 training')
+try:
+    import apex
+    from apex import amp
+except ModuleNotFoundError:
+    print('please install amp if using float16 training')
 
 import encoding
 from encoding.utils import (mkdir, accuracy, AverageMeter, LR_Scheduler)
@@ -77,13 +76,12 @@ def get_args():
     #                    help='file to store remote ip addresses (default: None)')
     parser.add_argument('--num-trials', default=32, type=int,
                         help='number of trail tasks')
-    parser.add_argument('--checkname', type=str, default='./checkpoint.ag',
+    parser.add_argument('--checkname', type=str, default='./exp/checkpoint.ag',
                         help='checkpoint path (default: None)')
     parser.add_argument('--resume', action='store_true', default= False,
                         help='resume from the checkpoint if needed')
+    parser = parser
 
-    parser.add_argument('--checkpoint', action='store_true', default= False,
-                        help='Using PyTorch checkpoint if needed')
     args = parser.parse_args()
     return args
 
@@ -100,18 +98,16 @@ def write_results(cfg, out_config_file, **kwargs):
         config.write(cfg)
 
 
-def train_network(args, gpu_manager, task_id, searcher):
-    gpu = gpu_manager.request()
-    config = searcher.get_config()
+@at.args()
+def train_network(args, reporter):
+    gpu = args.gpu_ids[0]
+    print('gpu: {}, cfg: {}'.format(gpu, args.cfg))
 
+    # single gpu training only for evaluating the configurations
     arch = importlib.import_module('arch.' + args.arch)
-    cfg = arch.GenConfg()
-    cfg = cfg.sample(**config)
-    print('gpu: {}, cfg: {}'.format(gpu, cfg))
-
-    #from arch.base_generator import BaseGen
-    #assert isinstance(cfg, BaseGen)
-    model = arch.config_network(arch.dump_config(cfg))
+    from arch.base_generator import BaseGen
+    #assert isinstance(args.cfg, BaseGen)
+    model = arch.config_network(arch.dump_config(args.cfg))
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(),
                                 lr=args.lr,
@@ -122,8 +118,7 @@ def train_network(args, gpu_manager, task_id, searcher):
     criterion.cuda(gpu)
 
     if args.amp:
-        #model, optimizer = amp.initialize(model, optimizer, opt_level='O2')
-        scaler = torch.cuda.amp.GradScaler()
+        model, optimizer = amp.initialize(model, optimizer, opt_level='O2')
 
     # init dataloader
     base_size = args.base_size if args.base_size is not None else int(1.0 * args.crop_size / 0.875)
@@ -134,11 +129,10 @@ def train_network(args, gpu_manager, task_id, searcher):
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225]),
         ])
-    total_set = encoding.datasets.get_dataset('imagenet', root=args.data_dir,
+    trainset = encoding.datasets.get_dataset('imagenet', root=args.data_dir,
                                              transform=transform, train=True, download=True)
-    #valset = encoding.datasets.get_dataset('imagenet', root=args.data_dir,
-    #                                       transform=transform, train=False, download=True)
-    trainset, valset = subsample_dataset(total_set)
+    valset = encoding.datasets.get_dataset('imagenet', root=args.data_dir,
+                                           transform=transform, train=False, download=True)
     #from utils import SplitSampler
     #toy_sampler_train = SplitSampler(len(trainset), 200, 0)
     #toy_sampler_val = SplitSampler(len(valset), 200, 0)
@@ -148,7 +142,7 @@ def train_network(args, gpu_manager, task_id, searcher):
         num_workers=args.workers, drop_last=True, pin_memory=True)
 
     val_loader = torch.utils.data.DataLoader(
-        valset, batch_size=args.batch_size, shuffle=False,#sampler=toy_sampler_val,#
+        valset, batch_size=args.batch_size, shuffle=False,#sampler=toy_sampler_val, #
         num_workers=args.workers, pin_memory=True)
 
     # lr scheduler
@@ -166,23 +160,14 @@ def train_network(args, gpu_manager, task_id, searcher):
             lr_scheduler(optimizer, batch_idx, epoch, 0)
             data, target = data.cuda(gpu), target.cuda(gpu)
             optimizer.zero_grad()
+            output = model(data)
+            loss = criterion(output, target)
             if args.amp:
-                #with amp.scale_loss(loss, optimizer) as scaled_loss:
-                #    scaled_loss.backward()
-                with torch.cuda.amp.autocast():
-                    output = model(data)
-                    loss = criterion(output, target)
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
+                with amp.scale_loss(loss, optimizer) as scaled_loss:
+                    scaled_loss.backward()
             else:
-                if args.checkpoint:
-                    output = torch.utils.checkpoint.checkpoint_sequential(model, 2, data)
-                else:
-                    output = model(data)
-                loss = criterion(output, target)
                 loss.backward()
-                optimizer.step()
+            optimizer.step()
 
     def validate():
         model.eval()
@@ -200,13 +185,11 @@ def train_network(args, gpu_manager, task_id, searcher):
         train(epoch)
     acc = validate()
 
-    out_config_file = os.path.join(args.output_folder, '{}.ini'.format(task_id))
-    write_results(cfg, out_config_file,
+    out_config_file = os.path.join(args.output_folder, '{}.ini'.format(args.task_id))
+    write_results(args.cfg, out_config_file,
                   accuracy=acc.item(), epochs=args.epochs,
                   lr=args.lr, wd=args.wd)
-
-    searcher.update(config, float(acc.item()/100.0), done=True)
-    gpu_manager.release(gpu)
+    reporter(epoch=args.epochs-1, accuracy=float(acc.item()/100.0))
 
 
 def load_configs(folder, args, prefix=None, overwrite=False):
@@ -214,7 +197,7 @@ def load_configs(folder, args, prefix=None, overwrite=False):
     from arch.base_generator import BaseGen
     def is_trained(cfg):
         # check if this config has been trained
-        if 'accuracy' in cfg.keys() and float(cfg['accuracy']) > 0 and \
+        if 'accuracy' in cfg.keys() and cfg['accuracy'] > 0 and \
                 cfg['epochs'] == args.epochs:
             return True
         return False
@@ -237,86 +220,44 @@ def load_configs(folder, args, prefix=None, overwrite=False):
             configs.append(add_prefix(config, prefix))
     return configs
 
-def train_network_map(args):
-    train_network(*args)
-
-class NoDaemonProcess(mp.Process):
-    # make 'daemon' attribute always return False
-    def _get_daemon(self):
-        return False
-    def _set_daemon(self, value):
-        pass
-    daemon = property(_get_daemon, _set_daemon)
-
-class MyPool(mp.pool.Pool):
-    Process = NoDaemonProcess
-
-
-class GPUManager(object):
-    def __init__(self, ngpus):
-        self._gpus = mp.Manager().Queue()
-        for i in range(ngpus):
-            self._gpus.put(i)
-
-    def request(self):
-        return self._gpus.get()
-
-    def release(self, gpu):
-        self._gpus.put(gpu)
-
-def filter_configs(arch, configs, pre_configs):
-    new_configs = []
-    for cfg in configs:
-        ncfg, _ = arch.convert_config_space(cfg)
-        new_configs.append(ncfg)
-
-    npre_configs = []
-    for cfg in pre_configs:
-        ncfg, _ = arch.convert_config_space(cfg)
-        npre_configs.append(ncfg)
-
-    #print(f'npre_configs: {npre_configs}')
-    return [item for item in new_configs if item not in npre_configs]
 
 def main():
     os.environ['PYTHONWARNINGS'] = 'ignore:semaphore_tracker:UserWarning'
-    logging.basicConfig(level=logging.DEBUG)
+    #logging.basicConfig(level=logging.DEBUG)
 
-    args = get_args()
+    args = train_network.args
+    args.update(**vars(get_args()))
+
+    #args = get_args()
     mkdir(args.output_folder)
 
-    configs = load_configs(args.config_file_folder, args)
+    configs = load_configs(args.config_file_folder, args, 'cfg')
+    print(f"len(configs): {len(configs)}")
 
     arch = importlib.import_module('arch.' + args.arch)
-    cfg = arch.GenConfg()
-
-    # load finished results
-    pre_configs = load_configs(args.output_folder, args, overwrite=True)
-
-    # filer out finished ones
-    configs = filter_configs(arch, configs, pre_configs)
+    train_network.update(cfg=arch.GenConfg())
 
     import autotorch as at
-    searcher = at.searcher.BayesOptSearcher(cfg.cs, lazy_configs=configs)
 
-    # update searcher with finshed archs
-    if len(pre_configs) >= 0:
-        print(f'len(pre_configs): {len(pre_configs)}')
-        for cfg in pre_configs:
-            ncfg, acc = arch.convert_config_space(cfg)
-            searcher.update(ncfg, acc)
+    searcher = at.searcher.BayesOptSearcher(train_network.cs, lazy_configs=configs)
+    myscheduler = at.scheduler.FIFOScheduler(train_network, args,
+                                searcher=searcher,
+                                resource={'num_cpus': args.workers,
+                                          'num_gpus': 1},
+                                num_trials=args.num_trials,
+                                checkpoint=args.checkname,
+                                resume=args.resume,
+                                time_attr='epoch',
+                                reward_attr="accuracy")
 
-    print(f"len(configs): {len(configs)}")
-    ngpus = torch.cuda.device_count()
-    gpu_manager = GPUManager(ngpus)
+    print(myscheduler)
+    myscheduler.run()
+    myscheduler.join_jobs()
 
-    #train_network(args, gpu_manager, 0, searcher)
-    tasks = ([args, gpu_manager, task_id, searcher] for task_id in range(len(pre_configs), args.num_trials))
-    p = MyPool(processes=ngpus)
-    p.map(train_network_map, tasks)
+    myscheduler.get_training_curves('{}.png'.format(os.path.splitext(args.checkname)[0])) 
+    print('The Best Configuration and Accuracy are: {}, {}'.format(myscheduler.get_best_config(),
+                                                                   myscheduler.get_best_reward()))
 
-    import pickle
-    at.save(pickle.dumps(searcher), args.checkname)
 
 if __name__ == '__main__':
     main()

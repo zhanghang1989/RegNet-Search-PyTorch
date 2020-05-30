@@ -17,6 +17,7 @@ import torch.nn as nn
 
 import encoding
 from encoding.utils import (accuracy, AverageMeter, MixUpWrapper, LR_Scheduler)
+#from utils import get_transform
 
 class Options():
     def __init__(self):
@@ -75,6 +76,7 @@ def main():
         torch.cuda.manual_seed(args.seed)
     # init dataloader
     _, transform_val = encoding.transforms.get_transform(args.dataset, args.base_size, args.crop_size)
+    #_, transform_val = get_transform(args.dataset, args.base_size, args.crop_size)
     valset = encoding.datasets.get_dataset(args.dataset, root=args.data_dir,
                                            transform=transform_val, train=False, download=True)
     val_loader = torch.utils.data.DataLoader(

@@ -26,7 +26,7 @@ weight decay: 1e-4,
 - Install other dependencies:
 
 ```bash
-pip install autotorch thop torch-encoding
+pip install autotorch thop torch-encoding scikit-learn
 ```
 
 - Install Apex (optional):
@@ -74,3 +74,13 @@ python search.py --config-file-folder gen_configs/RegNet-0.4GF/ --output-folder 
 ```
 The accuracy will be written into the output config file after training.
 
+### Accelerating model search using Bayesian optimization
+
+```
+python search_bayesopt.py --config-file-folder gen_configs/RegNet-0.4GF-500/ --output-folder out_configs/RegNetX-0.4GF-500/ --epochs 25 --num-trials 32
+```
+
+### Summary the training results
+```
+python summary.py --config-file-folder out_configs/RegNetX-0.4GF/
+```

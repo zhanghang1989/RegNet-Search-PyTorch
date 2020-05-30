@@ -24,6 +24,7 @@ import autotorch as at
 import encoding
 from encoding.nn import LabelSmoothing, NLLMultiLabelSmooth
 from encoding.utils import (accuracy, AverageMeter, MixUpWrapper, LR_Scheduler, torch_dist_sum)
+#from utils import get_transform
 
 try:
     import apex
@@ -45,8 +46,6 @@ class Options():
                             help='label-smoothing (default eta: 0.0)')
         parser.add_argument('--mixup', type=float, default=0.0,
                             help='mixup (default eta: 0.0)')
-        parser.add_argument('--auto-policy', type=str, default=None,
-                            help='path to auto augment policy')
         parser.add_argument('--data-dir', type=str, default=os.path.expanduser('~/.encoding/data'),
                             help='data location for training')
         # model params 
@@ -147,13 +146,9 @@ def main_worker(gpu, ngpus_per_node, args):
     torch.cuda.manual_seed(args.seed)
     cudnn.benchmark = True
     # init dataloader
+    #transform_train, transform_val = get_transform(
     transform_train, transform_val = encoding.transforms.get_transform(
             args.dataset, args.base_size, args.crop_size)
-    if args.auto_policy is not None:
-        print(f'Using auto_policy: {args.auto_policy}')
-        from augment import Augmentation
-        auto_policy = Augmentation(at.load(args.auto_policy))
-        transform_train.transforms.insert(0, auto_policy)
 
     trainset = encoding.datasets.get_dataset(args.dataset, root=args.data_dir,
                                              transform=transform_train, train=True, download=True)

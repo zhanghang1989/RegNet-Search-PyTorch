@@ -26,7 +26,16 @@ class BaseGen(dict):
     __setitem__ = __setattr__
 
     def dump_config(self, config_file=None):
-        raise NotImplementedError
+        config = configparser.ConfigParser()
+        config['DEFAULT'] = {'bottleneck_ratio': '1'}
+        config['net'] = {}
+
+        for k, v in self.items():
+            config['net'][k] = str(v)
+        if config_file is not None:
+            with open(config_file, 'w') as cfg:
+                config.write(cfg)
+        return config
 
     def load_config(self, filename):
         config = configparser.ConfigParser()

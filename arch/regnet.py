@@ -12,7 +12,7 @@ __all__ = ['RegNeSt']
 # code modified from https://github.com/signatrix/regnet
 class AnyNeSt(nn.Module):
     def __init__(self, ls_num_blocks, ls_block_width, ls_bottleneck_ratio, ls_group_width,
-                 stride):
+                 stride, se_ratio):
         super().__init__()
         for block_width, bottleneck_ratio, group_width in zip(ls_block_width, ls_bottleneck_ratio, ls_group_width):
             assert block_width % (bottleneck_ratio * group_width) == 0
@@ -25,7 +25,7 @@ class AnyNeSt(nn.Module):
             self.net.add_module("stage_{}".format(i),
                                 Stage(num_blocks, prev_block_width, block_width,
                                       bottleneck_ratio, group_width=group_width,
-                                      stride=stride))
+                                      stride=stride, se_ratio=se_ratio))
             prev_block_width = block_width
 
         self.net.add_module("pool", GlobalAvgPool2d())
@@ -36,13 +36,11 @@ class AnyNeSt(nn.Module):
         return x
 
 
-class RegNet(AnyNeSt):
+class RegNetX(AnyNeSt):
     def __init__(self, initial_width, slope, quantized_param, network_depth, bottleneck_ratio, group_width,
                  stride=2):
         # We need to derive block width and number of blocks from initial parameters.
-        # From equation 2
         parameterized_width = initial_width + slope * np.arange(network_depth)
-        # From equation 3
         parameterized_block = np.log(parameterized_width / initial_width) / np.log(quantized_param)
         parameterized_block = np.round(parameterized_block)
         quantized_width = initial_width * np.power(quantized_param, parameterized_block)
@@ -60,12 +58,12 @@ class RegNet(AnyNeSt):
         ls_block_width = ls_block_width.astype(np.int).tolist()
 
         super().__init__(ls_num_blocks, ls_block_width, ls_bottleneck_ratio, ls_group_width,
-                         stride=stride)
+                         stride=stride, se_ratio=None)
 
 
 class Bottleneck(nn.Module):
     def __init__(self, in_channels, out_channels, bottleneck_ratio, group_width,
-                 stride):
+                 stride, se_ratio):
         super(Bottleneck, self).__init__()
         inter_channels = out_channels // bottleneck_ratio
         groups = inter_channels // group_width
@@ -73,6 +71,17 @@ class Bottleneck(nn.Module):
         self.conv1 = ConvBnAct(in_channels, inter_channels, kernel_size=1, bias=False)
         self.conv2 = ConvBnAct(inter_channels, inter_channels, kernel_size=3, stride=stride,
                                       groups=groups, padding=1, bias=False)
+        if se_ratio is not None:
+            se_channels = in_channels // se_ratio
+            self.se = nn.Sequential(
+                nn.AdaptiveAvgPool2d(output_size=1),
+                nn.Conv2d(inter_channels, se_channels, kernel_size=1, bias=True),
+                nn.ReLU(),
+                nn.Conv2d(se_channels, inter_channels, kernel_size=1, bias=True),
+                nn.Sigmoid(),
+            )
+        else:
+            self.se = None
         self.conv3 = ConvBnAct(inter_channels, out_channels, kernel_size=1, bias=False, act=False)
         if stride != 1 or in_channels != out_channels:
             self.shortcut = ConvBnAct(in_channels, out_channels, kernel_size=1, stride=stride, bias=False, act=False)
@@ -83,6 +92,8 @@ class Bottleneck(nn.Module):
     def forward(self, x):
         x1 = self.conv1(x)
         x1 = self.conv2(x1)
+        if self.se is not None:
+            x1 = x1 * self.se(x1)
         x1 = self.conv3(x1)
         if self.shortcut is not None:
             x2 = self.shortcut(x)
@@ -93,15 +104,15 @@ class Bottleneck(nn.Module):
 
 
 class Stage(nn.Module):
-    def __init__(self, num_blocks, in_channels, out_channels, bottleneck_ratio, group_width, stride):
+    def __init__(self, num_blocks, in_channels, out_channels, bottleneck_ratio, group_width, stride, se_ratio):
         super().__init__()
         self.blocks = nn.Sequential()
         self.blocks.add_module("block_0", Bottleneck(in_channels, out_channels, bottleneck_ratio, group_width,
-                                                     stride=stride))
+                                                     stride=stride, se_ratio=se_ratio))
         for i in range(1, num_blocks):
             self.blocks.add_module("block_{}".format(i),
                                    Bottleneck(out_channels, out_channels, bottleneck_ratio, group_width,
-                                              stride=1))
+                                              stride=1, se_ratio=se_ratio))
 
     def forward(self, x):
         x = self.blocks(x)
@@ -144,18 +155,33 @@ def dump_config(cfg, config_file=None):
             config.write(cfg)
     return config
 
+def convert_config_space(cfg):
+    ncfg = GenConfg().init()
+    ncfg.bottleneck_ratio = 1
+    #ncfg.radix = int(cfg.radix)
+    #ncfg.cardinality = int(cfg.cardinality)
+    ncfg.slope = float(cfg.slope)
+    ncfg.initial_width = int(cfg.initial_width)
+    ncfg.network_depth = int(cfg.network_depth)
+    ncfg.group_width = int(cfg.group_width)
+    ncfg.quantized_param = float(cfg.quantized_param)
+    acc = float(cfg.accuracy) if hasattr(cfg, 'accuracy') else 0.0
+    return ncfg, acc
 
 @at.obj(
     bottleneck_ratio=at.Int(1, 2),
-    initial_width=at.Int(16, 320),
-    slope=at.Real(24, 128, log=True),
+    #initial_width=at.Int(16, 320),
+    initial_width=at.Int(16, 96, log=True),
+    #slope=at.Real(24, 128, log=True),
+    slope=at.Real(24, 64, log=True),
     quantized_param=at.Real(2.0, 3.2),
     network_depth=at.Int(12, 28),
-    group_width=at.Int(8, 240),
+    #group_width=at.Int(8, 240),
+    group_width=at.Int(8, 64),
 )
 class GenConfg(BaseGen):
     def dump_config(self, config_file=None):
-        dump_config(self, config_file)
+        return dump_config(self, config_file)
 
 def config_network(cfg):
     # construct regnet from a config file
@@ -177,6 +203,6 @@ def config_network(cfg):
     quantized_param = float(config['net']['quantized_param'])
 
     network_depth = int(config['net']['network_depth'])
-    model = RegNet(initial_width, slope, quantized_param, network_depth,
-                   bottleneck_ratio, group_width)
+    model = RegNetX(initial_width, slope, quantized_param, network_depth,
+                    bottleneck_ratio, group_width)
     return model
